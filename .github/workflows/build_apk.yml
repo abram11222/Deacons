@@ -1,4 +1,5 @@
-name: Build Deacons Service APK
+STREAMING_CHUNK:Configuring workflow triggers and base environment...
+​name: Build Deacons Service APK
 ​on:
 push:
 branches: [ "" ]
@@ -18,24 +19,45 @@ java-version: '17'
 uses: actions/setup-python@v5
 with:
 python-version: '3.x'
-​- name: Unpack Project and Apply Firebase & Admin Updates
+​# STREAMING_CHUNK:Setting up Gradle tool for wrapper generation...
+- name: Set up Gradle
+uses: gradle/actions/setup-gradle@v4
+with:
+gradle-version: '8.9'
+​# STREAMING_CHUNK:Extracting project and injecting updates...
+- name: Unpack Project and Apply Firebase & Admin Updates
 run: |
 python - << 'EOF'
 import os
 import zipfile
 import shutil
-​# Find the source zip in the repository
+​# Find source zip
 zip_files = [f for f in os.listdir('.') if f.lower().endswith('.zip')]
-if not zip_files:
-print("No zip file found! If files are already extracted in repo, skipping unzip.")
-else:
+if zip_files:
 target_zip = zip_files[0]
-print(f"Extracting {target_zip}...")
+print(f"Extracting zip archive: {target_zip}")
 with zipfile.ZipFile(target_zip, 'r') as zip_ref:
 zip_ref.extractall('.')
 print("Extraction complete.")
-​# Update the key cloud & admin files
-UPDATED_CODE = {
+else:
+print("Notice: No zip file found directly. Checking existing files...")
+​# Move files if extracted into a nested folder
+if not os.path.exists('app') and not os.path.exists('build.gradle.kts'):
+for item in os.listdir('.'):
+if os.path.isdir(item) and item not in ['.git', '.github']:
+nested_app = os.path.join(item, 'app')
+if os.path.exists(nested_app):
+print(f"Moving files from nested folder '{item}' to project root...")
+for sub_item in os.listdir(item):
+src = os.path.join(item, sub_item)
+dst = os.path.join('.', sub_item)
+if not os.path.exists(dst):
+shutil.move(src, dst)
+break
+​if not os.path.exists('app'):
+print("CRITICAL: 'app' directory not found! Please make sure your source ZIP is uploaded to the repository.")
+exit(1)
+​UPDATED_CODE = {
 "app/src/main/java/com/example/data/model/Entities.kt": '''package com.example.data.model
 ​import androidx.room.Entity
 import androidx.room.PrimaryKey
@@ -257,7 +279,7 @@ version = 2,
 exportSchema = false
 )
 abstract class DeaconsDatabase : RoomDatabase() {
-​abstract fun memberDao(): MemberDao
+abstract fun memberDao(): MemberDao
 abstract fun stageDao(): StageDao
 abstract fun subjectDao(): SubjectDao
 abstract fun attendanceDao(): AttendanceDao
@@ -1484,11 +1506,21 @@ f.write(content)
 print(f"Applied update to: {rel_path}")
 ​print("All project updates injected successfully!")
 EOF
-​- name: Make Gradle Executable
-run: chmod +x gradlew
-​- name: Build Debug APK
+​# STREAMING_CHUNK:Accepting Android licenses and preparing wrapper...
+- name: Accept Android SDK Licenses
+run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+​- name: Generate Gradle Wrapper if Missing
+run: |
+if [ ! -f "gradlew" ]; then
+echo "gradlew was missing from zip archive. Generating it automatically..."
+gradle wrapper --gradle-version 8.9
+fi
+chmod +x gradlew
+​# STREAMING_CHUNK:Executing debug APK assembly...
+- name: Build Debug APK
 run: ./gradlew assembleDebug --no-daemon --stacktrace
-​- name: Upload APK as Artifact
+​# STREAMING_CHUNK:Uploading generated APK artifact...
+- name: Upload APK as Artifact
 uses: actions/upload-artifact@v4
 with:
 name: app-debug
